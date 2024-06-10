@@ -28,6 +28,7 @@ func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofe
 		Tracker:        param.TrackerMessage.TRACKER,
 		Vehicle:        param.TrackerMessage.VEHICLE,
 		Company:        param.TrackerMessage.COMPANY,
+		Driver:         param.TrackerMessage.DRIVER,
 		Geofence:       param.Geofence.ID,
 		Date:           param.TrackerMessage.GPS_TIME,
 		CreatedAt:      time.Now(),

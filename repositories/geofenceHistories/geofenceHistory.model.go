@@ -12,6 +12,7 @@ type GeofenceHistoryModel struct {
 	Vehicle        primitive.ObjectID `bson:"vehicle"`
 	Tracker        primitive.ObjectID `bson:"tracker"`
 	Company        primitive.ObjectID `bson:"company"`
+	Driver         primitive.ObjectID `bson:"driver"`
 	Geofence       primitive.ObjectID `bson:"geofence"`
 	Date           time.Time          `bson:"date"`
 	CreatedAt      time.Time          `bson:"createdAt"`

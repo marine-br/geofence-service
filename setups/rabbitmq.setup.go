@@ -7,7 +7,7 @@ import (
 )
 
 func SetupRabbitmq() <-chan amqp091.Delivery {
-	_, _, consumeChan := rabbitmq.ConsumeQueue(os.Getenv("RABBITMQ_CONSUME_QUEUE"), 2500)
+	_, _, consumeChan := rabbitmq.ConsumeQueue(os.Getenv("RABBITMQ_CON_QUEUE"), 2500)
 
 	return consumeChan
 }

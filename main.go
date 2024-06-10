@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	geofenceHistoryRepositories "github.com/marine-br/geoafence-service/repositories/geofenceHistories"
 	"github.com/marine-br/geoafence-service/repositories/geofencesRepositories"
 	"github.com/marine-br/geoafence-service/setups"
@@ -9,7 +10,10 @@ import (
 	"github.com/marine-br/geoafence-service/utils/PolygonFromPrimitiveD"
 	"github.com/marine-br/golib-logger/logger"
 	"github.com/marine-br/golib-utils/models"
+	"github.com/marine-br/golib-utils/utils"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"net/http"
+	"os"
 )
 
 func main() {
@@ -17,6 +21,22 @@ func main() {
 	mongo := setups.SetupMongo()
 	geofenceRepository := geofencesRepositories.NewMongoGeofenceRepository(mongo)
 	geofenceHistoryRepository := geofenceHistoryRepositories.NewMongoGeofenceHistoryRepository(mongo)
+
+	go func() {
+		//http.Handle("/metrics", promhttp.Handler())
+		http.HandleFunc(
+			"/health", utils.HealthCheckHandler(
+				utils.HealthCheckArgs{
+					MongoClient: &mongo,
+				},
+			),
+		)
+
+		logger.Log("server listening on port ", os.Getenv("HTTP_SERVER_PORT"))
+		if err := http.ListenAndServe(os.Getenv("HTTP_SERVER_PORT"), nil); !errors.Is(err, http.ErrServerClosed) {
+			logger.LogError(err)
+		}
+	}()
 
 	forever := make(chan bool)
 	go func() {
