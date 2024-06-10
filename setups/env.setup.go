@@ -20,6 +20,9 @@ func SetupEnv() {
 	validateEnv("RABBITMQ_USERNAME")
 	validateEnv("RABBITMQ_NAME")
 
+	defaultEnv("MONGO_GEOFENCE_COLLECTION", "geofences")
+	defaultEnv("MONGO_GEOFENCE_HISTORIES_COLLECTION", "geofencehistories")
+
 	defaultEnv("HTTP_SERVER_PORT", ":8080")
 
 	for _, err := range errors {

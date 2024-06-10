@@ -60,7 +60,3 @@ func (m *MongoGeofenceRepository) GetGeofences(param GetGeofenceParams) ([]model
 
 	return geofences, nil
 }
-
-type Point struct {
-	X, Y float64
-}

@@ -17,6 +17,7 @@ import (
 )
 
 func main() {
+	setups.SetupEnv()
 	rabbitmq := setups.SetupRabbitmq()
 	mongo := setups.SetupMongo()
 	geofenceRepository := geofencesRepositories.NewMongoGeofenceRepository(mongo)
