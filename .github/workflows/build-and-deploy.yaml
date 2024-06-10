@@ -31,7 +31,7 @@ jobs:
             GO_GIT_CRED__HTTPS__GITHUB__COM=${{ secrets.GO_GIT_CRED__HTTPS__GITHUB__COM}}
             GO_PRIVATE=${{ secrets.GO_PRIVATE }}
           push: true
-          tags: 953966107292.dkr.ecr.us-east-1.amazonaws.com/realtime-service:latest
+          tags: 953966107292.dkr.ecr.us-east-1.amazonaws.com/geofence-service:latest
   
   deploy:
     needs: build
@@ -58,7 +58,7 @@ jobs:
           mv linux-amd64/helm /usr/local/bin/helm
           helm version
       - name: Lint helm charts
-        run: helm lint ./helm-packages/apps/realtime-service
+        run: helm lint ./helm-packages/apps/geofence-service
       
       - uses: unfor19/install-aws-cli-action@master
       - name: AWS CLI Config
@@ -69,7 +69,7 @@ jobs:
           aws configure set default.region ${{ secrets.AWS_DEFAULT_REGION }}
       - name: Deploy
         run: |
-          helm upgrade --install realtime-service ./helm-packages/apps/realtime-service -f ./helm-packages/apps/realtime-service/values.yaml \
+          helm upgrade --install geofence-service ./helm-packages/apps/geofence-service -f ./helm-packages/apps/geofence-service/values.yaml \
             --namespace gateway-dev --create-namespace \
             --set image.tag=latest
           
