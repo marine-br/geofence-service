@@ -57,12 +57,12 @@ func main() {
 				var trackerMessage models.TrackerMsgType
 				err := json.Unmarshal(message.Body, &trackerMessage)
 				if err != nil {
-					logger.Error(err)
+					logger.Error("cant unmarshal tracker message", err)
 				}
 
 				geoFences, err := geofenceRepository.GetGeofences(geofencesRepositories.GetGeofenceParams{CompanyId: trackerMessage.COMPANY})
 				if err != nil {
-					logger.LogError(err)
+					logger.Error("cant get geofences from company", err)
 					message.Ack(true)
 					continue
 				}
@@ -96,7 +96,7 @@ func main() {
 						Status:         stringStatus,
 					})
 					if err != nil {
-						logger.LogError(err)
+						logger.Error("cant insert in the database", err)
 						continue
 					}
 				}
