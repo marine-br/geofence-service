@@ -58,7 +58,10 @@ func main() {
 				err := json.Unmarshal(message.Body, &trackerMessage)
 				if err != nil {
 					logger.Log(string(message.Body))
-					logger.Error("cant unmarshal tracker message", err)
+					logger.Error("cant unmarshal tracker message, ack sent", err)
+					message.Ack(true)
+
+					continue
 				}
 
 				geoFences, err := geofenceRepository.GetGeofences(geofencesRepositories.GetGeofenceParams{CompanyId: trackerMessage.COMPANY})
