@@ -45,7 +45,7 @@ func main() {
 
 	goRoutineNumber, err := strconv.ParseInt(os.Getenv("GO_ROUTINES"), 10, 64)
 	if err != nil {
-		goRoutineNumber = 4
+		goRoutineNumber = 2
 	}
 	logger.Log(fmt.Sprintf("Running %d go routines", goRoutineNumber))
 
