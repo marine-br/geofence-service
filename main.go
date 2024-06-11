@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	geofenceHistoryRepositories "github.com/marine-br/geoafence-service/repositories/geofenceHistories"
 	"github.com/marine-br/geoafence-service/repositories/geofencesRepositories"
 	"github.com/marine-br/geoafence-service/setups"
@@ -14,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 func main() {
@@ -40,54 +42,70 @@ func main() {
 	}()
 
 	forever := make(chan bool)
-	go func() {
-		for {
-			message := <-rabbitmq
 
-			var trackerMessage models.TrackerMsgType
-			err := json.Unmarshal(message.Body, &trackerMessage)
-			if err != nil {
-				logger.Error(err)
-			}
+	goRoutineNumber, err := strconv.ParseInt(os.Getenv("GO_ROUTINES"), 10, 64)
+	if err != nil {
+		goRoutineNumber = 4
+	}
+	logger.Log(fmt.Sprintf("Running %d go routines", goRoutineNumber))
 
-			geoFences, err := geofenceRepository.GetGeofences(geofencesRepositories.GetGeofenceParams{CompanyId: trackerMessage.COMPANY})
-			if err != nil {
-				logger.LogError(err)
-				message.Ack(true)
-				continue
-			}
+	for i := 1; i < int(goRoutineNumber); i++ {
+		go func() {
+			for {
+				message := <-rabbitmq
 
-			// para cada geofence, valida se o vehicle está dentro da geofence
-			for _, geoFence := range geoFences {
-				geojson, ok := geoFence.Geojson.(primitive.D)
-				if !ok {
-					logger.Error("geojson is not a primitive.D")
-					continue
+				var trackerMessage models.TrackerMsgType
+				err := json.Unmarshal(message.Body, &trackerMessage)
+				if err != nil {
+					logger.Error(err)
 				}
 
-				geofencePolygon := PolygonFromPrimitiveD.PolygonFromPrimitiveD(geojson)
-				point := IsPointInsidePolygon.Point{X: trackerMessage.LATITUDE, Y: trackerMessage.LONGITUDE}
-
-				status := IsPointInsidePolygon.IsPointInPolygon(point, geofencePolygon)
-
-				stringStatus := "OUT"
-				if status {
-					stringStatus = "IN"
-				}
-
-				err = geofenceHistoryRepository.InsertGeofenceHistory(geofenceHistoryRepositories.InsertGeofenceHistoryParams{
-					TrackerMessage: trackerMessage,
-					Geofence:       geoFence,
-					Status:         stringStatus,
-				})
+				geoFences, err := geofenceRepository.GetGeofences(geofencesRepositories.GetGeofenceParams{CompanyId: trackerMessage.COMPANY})
 				if err != nil {
 					logger.LogError(err)
+					message.Ack(true)
 					continue
 				}
-			}
 
-			message.Ack(true)
-		}
-	}()
+				logger.Log(fmt.Sprintf("found %d geofences", len(geoFences)))
+
+				// para cada geofence, valida se o vehicle está dentro da geofence
+
+				var inCounter int
+				for _, geoFence := range geoFences {
+					geojson, ok := geoFence.Geojson.(primitive.D)
+					if !ok {
+						logger.Error("geojson is not a primitive.D")
+						continue
+					}
+
+					geofencePolygon := PolygonFromPrimitiveD.PolygonFromPrimitiveD(geojson)
+					point := IsPointInsidePolygon.Point{X: trackerMessage.LATITUDE, Y: trackerMessage.LONGITUDE}
+
+					status := IsPointInsidePolygon.IsPointInPolygon(point, geofencePolygon)
+
+					stringStatus := "OUT"
+					if status {
+						stringStatus = "IN"
+						inCounter += 1
+					}
+
+					err = geofenceHistoryRepository.InsertGeofenceHistory(geofenceHistoryRepositories.InsertGeofenceHistoryParams{
+						TrackerMessage: trackerMessage,
+						Geofence:       geoFence,
+						Status:         stringStatus,
+					})
+					if err != nil {
+						logger.LogError(err)
+						continue
+					}
+				}
+				logger.Log("in counter", inCounter)
+				logger.Log("out counter", len(geoFences)-inCounter)
+
+				message.Ack(true)
+			}
+		}()
+	}
 	<-forever
 }
