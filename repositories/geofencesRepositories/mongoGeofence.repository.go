@@ -32,6 +32,7 @@ func (m *MongoGeofenceRepository) GetGeofences(param GetGeofenceParams) ([]model
 				},
 			},
 		},
+		{"deleted", bson.D{{"$ne", true}}},
 	}
 
 	// Executa a busca no MongoDB
