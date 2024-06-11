@@ -57,6 +57,7 @@ func main() {
 				var trackerMessage models.TrackerMsgType
 				err := json.Unmarshal(message.Body, &trackerMessage)
 				if err != nil {
+					logger.Log(string(message.Body))
 					logger.Error("cant unmarshal tracker message", err)
 				}
 
