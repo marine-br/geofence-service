@@ -22,8 +22,6 @@ func SetupEnv() {
 
 	validateEnv("REDIS_HOST")
 	validateEnv("REDIS_PORT")
-	validateEnv("REDIS_TLS")
-	validateEnv("REDIS_CLUSTER")
 
 	defaultEnv("MONGO_GEOFENCE_COLLECTION", "geofences")
 	defaultEnv("MONGO_GEOFENCE_HISTORIES_COLLECTION", "geofencehistories")
