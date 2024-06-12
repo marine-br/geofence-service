@@ -26,7 +26,7 @@ type FindLastGeofenceHistoryParams struct {
 }
 
 type GeofenceHistoryRepository interface {
-	InsertGeofenceHistory(param InsertGeofenceHistoryParams) error
+	InsertGeofenceHistory(param InsertGeofenceHistoryParams) (GeofenceHistoryModel, error)
 	FindFirstAfterGeofenceHistory(param FindFirstAfterGeofenceHistoryParams) (*GeofenceHistoryModel, error)
 	FindLastGeofenceHistory(param FindLastGeofenceHistoryParams) (GeofenceHistoryModel, error)
 	DeleteGeofenceHistory(param DeleteGeofenceHistoryParams) error

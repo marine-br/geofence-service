@@ -24,7 +24,7 @@ func NewMongoGeofenceHistoryRepository(client db.MongoClient) MongoGeofenceHisto
 	return geofenceRepo
 }
 
-func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofenceHistoryParams) error {
+func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofenceHistoryParams) (GeofenceHistoryModel, error) {
 	geofenceHistory := GeofenceHistoryModel{
 		Type:           param.Status,
 		TrackerMessage: param.TrackerMessage.ID,
@@ -39,10 +39,10 @@ func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofe
 
 	_, err := m.GeofenceHistoryCollection.InsertOne(context.Background(), geofenceHistory)
 	if err != nil {
-		return fmt.Errorf("failed to insert geofence history: %v", err)
+		return GeofenceHistoryModel{}, fmt.Errorf("failed to insert geofence history: %v", err)
 	}
 
-	return nil
+	return geofenceHistory, nil
 }
 
 func (m *MongoGeofenceHistoryRepository) FindFirstAfterGeofenceHistory(param FindFirstAfterGeofenceHistoryParams) (*GeofenceHistoryModel, error) {

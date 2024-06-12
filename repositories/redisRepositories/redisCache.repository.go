@@ -28,6 +28,10 @@ func (r *RedisCacheRepository) GetLastGeofence(param GetLastGeofenceParams) (*ge
 		return nil, err
 	}
 
+	if lastMessage == "" {
+		return nil, nil
+	}
+
 	var geofenceHistory geofenceHistoryRepositories.GeofenceHistoryModel
 	err = json.Unmarshal([]byte(lastMessage), &geofenceHistory)
 	if err != nil {
@@ -41,7 +45,13 @@ func (r *RedisCacheRepository) GetLastGeofence(param GetLastGeofenceParams) (*ge
 func (r *RedisCacheRepository) SetLastGeofence(param SetLastGeofenceParams) bool {
 	key := fmt.Sprintf("%s:%s", param.VehicleID.Hex(), param.GeofenceId.Hex())
 
-	err := r.db.Set(key, param.Value, 5*24*time.Hour)
+	redisGeofenceHistory, err := json.Marshal(param.Value)
+	if err != nil {
+		logger.Error(fmt.Sprintf("cant format marshal [%s] %s", param.Value, err.Error()))
+		return false
+	}
+
+	err = r.db.Set(key, redisGeofenceHistory, 5*24*time.Hour)
 	if err != nil {
 		logger.Error(fmt.Sprintf("cant set redis key [%s] %s", key, err.Error()))
 		return false

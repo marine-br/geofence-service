@@ -10,20 +10,13 @@ import (
 	"github.com/marine-br/geoafence-service/setups"
 	"github.com/marine-br/geoafence-service/utils/IsPointInsidePolygon"
 	"github.com/marine-br/geoafence-service/utils/PolygonFromPrimitiveD"
+	"github.com/marine-br/geoafence-service/utils/eventValidators"
 	"github.com/marine-br/golib-logger/logger"
 	"github.com/marine-br/golib-utils/models"
 	"github.com/marine-br/golib-utils/utils"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net/http"
 	"os"
-)
-
-const (
-	StatusIn           = "IN"
-	StatusOut          = "OUT"
-	StatusBeforeCache  = "BEFORE_CACHE"
-	StatusDuplicated   = "DUP"
-	StatusSameAsBefore = "SAME_AS_BEFORE"
 )
 
 func main() {
@@ -78,11 +71,12 @@ func main() {
 				continue
 			}
 
-			logger.Log(fmt.Sprintf("found %d geofences", len(geoFences)))
+			logger.LogWithLabel(trackerMessage.DID, fmt.Sprintf("found %d geofences", len(geoFences)))
 
 			// para cada geofence, valida se o vehicle está dentro da geofence
 
 			var inCounter int
+			var outCounter int
 			for _, geoFence := range geoFences {
 				geojson, ok := geoFence.Geojson.(primitive.D)
 				if !ok {
@@ -94,36 +88,40 @@ func main() {
 				point := IsPointInsidePolygon.Point{X: trackerMessage.LATITUDE, Y: trackerMessage.LONGITUDE}
 
 				status := IsPointInsidePolygon.IsPointInPolygon(point, geofencePolygon)
-
 				// set the default value for the status
-				statusString := StatusOut
+				statusString := eventValidators.StatusOut
 				if status {
-					statusString = StatusIn
+					statusString = eventValidators.StatusIn
 				}
 
 				// change the status based on cache
-				statusString = ValidateFromCache(redisRepo, trackerMessage, statusString)
-				if statusString == StatusBeforeCache {
+				fromRedisStatus, hasCache := eventValidators.ValidateFromCache(redisRepo, trackerMessage, geoFence, statusString)
+				if fromRedisStatus == eventValidators.StatusBeforeCache {
 					// change the status based on the database
-					statusString = ValidateFromDatabase(
+					statusString = eventValidators.ValidateFromDatabase(
 						&geofenceHistoryRepository,
 						trackerMessage,
 						geoFence,
 						statusString,
+
+						*redisRepo,
+						hasCache,
 					)
+				} else {
+					statusString = fromRedisStatus
 				}
-				if statusString == StatusSameAsBefore {
-					logger.Warning("was not save on the database")
+
+				if statusString == eventValidators.StatusSameAsBefore {
 					continue
 				}
 
-				if statusString == StatusDuplicated {
+				if statusString == eventValidators.StatusDuplicated {
 					logger.Warning("message duplicated from the databse")
 					continue
 				}
 
 				// create a new history for the message
-				err = geofenceHistoryRepository.InsertGeofenceHistory(geofenceHistoryRepositories.InsertGeofenceHistoryParams{
+				geofenceHistory, err := geofenceHistoryRepository.InsertGeofenceHistory(geofenceHistoryRepositories.InsertGeofenceHistoryParams{
 					TrackerMessage: trackerMessage,
 					Geofence:       geoFence,
 					Status:         statusString,
@@ -133,87 +131,29 @@ func main() {
 					continue
 				}
 
-				if statusString == StatusIn {
+				redisRepo.SetLastGeofence(redisRepositories.SetLastGeofenceParams{
+					GeofenceId: geoFence.ID,
+					VehicleID:  trackerMessage.VEHICLE,
+					Value:      geofenceHistory,
+				})
+
+				if statusString == eventValidators.StatusIn {
 					inCounter += 1
+				} else {
+					outCounter += 1
 				}
 			}
-			logger.Log("in counter", inCounter)
-			logger.Log("out counter", len(geoFences)-inCounter)
+
+			if inCounter > 0 {
+				logger.LogWithLabel(trackerMessage.DID, "in counter", inCounter)
+			}
+
+			if outCounter > 0 {
+				logger.LogWithLabel(trackerMessage.DID, "out counter", outCounter)
+			}
 
 			message.Ack(true)
 		}
 	}()
 	<-forever
-}
-
-func ValidateFromCache(cache redisRepositories.CacheRepository, trackerMessage models.TrackerMsgType, status string) string {
-	LastGeofenceHistoryFromCache, _ := cache.GetLastGeofence(redisRepositories.GetLastGeofenceParams{})
-
-	if LastGeofenceHistoryFromCache == nil {
-		return StatusBeforeCache
-	}
-
-	if LastGeofenceHistoryFromCache.CreatedAt.Equal(trackerMessage.GPS_TIME) {
-		return LastGeofenceHistoryFromCache.Type
-	}
-
-	if LastGeofenceHistoryFromCache.CreatedAt.After(trackerMessage.GPS_TIME) {
-		return StatusBeforeCache
-	}
-
-	if LastGeofenceHistoryFromCache.Type == StatusOut {
-		status = StatusIn
-	}
-
-	return status
-}
-
-func ValidateFromDatabase(
-	geofenceRepo geofenceHistoryRepositories.GeofenceHistoryRepository,
-	trackerMessage models.TrackerMsgType,
-	geofence models.GeofenceType,
-	status string) string {
-
-	LastGeofenceHistoryFromDb, _ := geofenceRepo.FindLastGeofenceHistory(geofenceHistoryRepositories.FindLastGeofenceHistoryParams{
-		TrackerMessage: trackerMessage,
-		Geofence:       geofence,
-	})
-
-	// event already created
-	if LastGeofenceHistoryFromDb.CreatedAt.Equal(trackerMessage.GPS_TIME) {
-		return StatusDuplicated
-	}
-
-	// if it was in the same status,
-	if LastGeofenceHistoryFromDb.Type == status {
-		return StatusSameAsBefore
-	}
-
-	FirstAfterGeofenceHistoryFromDb, _ := geofenceRepo.FindFirstAfterGeofenceHistory(geofenceHistoryRepositories.FindFirstAfterGeofenceHistoryParams{
-		TrackerMessage: trackerMessage,
-		Geofence:       geofence,
-	})
-
-	if FirstAfterGeofenceHistoryFromDb == nil {
-		return status
-	}
-
-	if FirstAfterGeofenceHistoryFromDb.CreatedAt.Equal(trackerMessage.GPS_TIME) {
-		return StatusDuplicated
-	}
-
-	if FirstAfterGeofenceHistoryFromDb.Type == status {
-		err := geofenceRepo.DeleteGeofenceHistory(
-			geofenceHistoryRepositories.DeleteGeofenceHistoryParams{
-				GeofenceHistoryId: FirstAfterGeofenceHistoryFromDb.ID,
-			},
-		)
-		if err != nil {
-			logger.Error(fmt.Sprintf("cant delete geofence from db [%s] %s", FirstAfterGeofenceHistoryFromDb.ID.Hex(), err))
-		}
-
-		return status
-	}
-
-	return status
 }
