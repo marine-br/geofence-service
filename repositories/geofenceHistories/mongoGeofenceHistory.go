@@ -2,9 +2,12 @@ package geofenceHistoryRepositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	db "github.com/marine-br/golib-mongo"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
 	"time"
 )
@@ -21,7 +24,7 @@ func NewMongoGeofenceHistoryRepository(client db.MongoClient) MongoGeofenceHisto
 	return geofenceRepo
 }
 
-func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofenceHistoryParams) error {
+func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofenceHistoryParams) (GeofenceHistoryModel, error) {
 	geofenceHistory := GeofenceHistoryModel{
 		Type:           param.Status,
 		TrackerMessage: param.TrackerMessage.ID,
@@ -36,7 +39,64 @@ func (m *MongoGeofenceHistoryRepository) InsertGeofenceHistory(param InsertGeofe
 
 	_, err := m.GeofenceHistoryCollection.InsertOne(context.Background(), geofenceHistory)
 	if err != nil {
-		return fmt.Errorf("failed to insert geofence history: %v", err)
+		return GeofenceHistoryModel{}, fmt.Errorf("failed to insert geofence history: %v", err)
+	}
+
+	return geofenceHistory, nil
+}
+
+func (m *MongoGeofenceHistoryRepository) FindFirstAfterGeofenceHistory(param FindFirstAfterGeofenceHistoryParams) (*GeofenceHistoryModel, error) {
+	var geofenceHistory GeofenceHistoryModel
+
+	filter := bson.M{
+		"tracker":  param.TrackerMessage.TRACKER,
+		"geofence": param.Geofence.ID,
+		"date": bson.M{
+			"$gte": param.TrackerMessage.GPS_TIME,
+		},
+	}
+	opts := options.FindOne().SetSort(bson.D{{"date", 1}})
+
+	err := m.GeofenceHistoryCollection.FindOne(context.Background(), filter, opts).Decode(&geofenceHistory)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil // No documents found, return empty model
+		}
+		return nil, fmt.Errorf("failed to find last geofence history: %v", err)
+	}
+
+	return &geofenceHistory, nil
+}
+
+func (m *MongoGeofenceHistoryRepository) FindLastGeofenceHistory(param FindLastGeofenceHistoryParams) (GeofenceHistoryModel, error) {
+	var geofenceHistory GeofenceHistoryModel
+
+	filter := bson.M{
+		"tracker":  param.TrackerMessage.TRACKER,
+		"geofence": param.Geofence.ID,
+		"date": bson.M{
+			"$lt": param.TrackerMessage.GPS_TIME,
+		},
+	}
+	opts := options.FindOne().SetSort(bson.D{{"date", -1}})
+
+	err := m.GeofenceHistoryCollection.FindOne(context.Background(), filter, opts).Decode(&geofenceHistory)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return GeofenceHistoryModel{}, nil // No documents found, return empty model
+		}
+		return GeofenceHistoryModel{}, fmt.Errorf("failed to find last geofence history: %v", err)
+	}
+
+	return geofenceHistory, nil
+}
+
+func (m *MongoGeofenceHistoryRepository) DeleteGeofenceHistory(param DeleteGeofenceHistoryParams) error {
+	filter := bson.M{"_id": param.GeofenceHistoryId}
+
+	_, err := m.GeofenceHistoryCollection.DeleteOne(context.Background(), filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete geofence history: %v", err)
 	}
 
 	return nil

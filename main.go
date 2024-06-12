@@ -6,9 +6,11 @@ import (
 	"fmt"
 	geofenceHistoryRepositories "github.com/marine-br/geoafence-service/repositories/geofenceHistories"
 	"github.com/marine-br/geoafence-service/repositories/geofencesRepositories"
+	"github.com/marine-br/geoafence-service/repositories/redisRepositories"
 	"github.com/marine-br/geoafence-service/setups"
 	"github.com/marine-br/geoafence-service/utils/IsPointInsidePolygon"
 	"github.com/marine-br/geoafence-service/utils/PolygonFromPrimitiveD"
+	"github.com/marine-br/geoafence-service/utils/eventValidators"
 	"github.com/marine-br/golib-logger/logger"
 	"github.com/marine-br/golib-utils/models"
 	"github.com/marine-br/golib-utils/utils"
@@ -21,6 +23,9 @@ func main() {
 	setups.SetupEnv()
 	rabbitmq := setups.SetupRabbitmq()
 	mongo := setups.SetupMongo()
+	redis := setups.SetupRedis()
+
+	redisRepo := redisRepositories.NewRedisCacheRepository(redis)
 	geofenceRepository := geofencesRepositories.NewMongoGeofenceRepository(mongo)
 	geofenceHistoryRepository := geofenceHistoryRepositories.NewMongoGeofenceHistoryRepository(mongo)
 
@@ -66,11 +71,12 @@ func main() {
 				continue
 			}
 
-			logger.Log(fmt.Sprintf("found %d geofences", len(geoFences)))
+			logger.LogWithLabel(trackerMessage.DID, fmt.Sprintf("found %d geofences", len(geoFences)))
 
 			// para cada geofence, valida se o vehicle está dentro da geofence
 
 			var inCounter int
+			var outCounter int
 			for _, geoFence := range geoFences {
 				geojson, ok := geoFence.Geojson.(primitive.D)
 				if !ok {
@@ -82,25 +88,69 @@ func main() {
 				point := IsPointInsidePolygon.Point{X: trackerMessage.LATITUDE, Y: trackerMessage.LONGITUDE}
 
 				status := IsPointInsidePolygon.IsPointInPolygon(point, geofencePolygon)
-
-				stringStatus := "OUT"
+				// set the default value for the status
+				statusString := eventValidators.StatusOut
 				if status {
-					stringStatus = "IN"
-					inCounter += 1
+					statusString = eventValidators.StatusIn
 				}
 
-				err = geofenceHistoryRepository.InsertGeofenceHistory(geofenceHistoryRepositories.InsertGeofenceHistoryParams{
+				// change the status based on cache
+				fromRedisStatus, hasCache := eventValidators.ValidateFromCache(redisRepo, trackerMessage, geoFence, statusString)
+				if fromRedisStatus == eventValidators.StatusBeforeCache {
+					// change the status based on the database
+					statusString = eventValidators.ValidateFromDatabase(
+						&geofenceHistoryRepository,
+						trackerMessage,
+						geoFence,
+						statusString,
+
+						*redisRepo,
+						hasCache,
+					)
+				} else {
+					statusString = fromRedisStatus
+				}
+
+				if statusString == eventValidators.StatusSameAsBefore {
+					continue
+				}
+
+				if statusString == eventValidators.StatusDuplicated {
+					logger.Warning("message duplicated from the databse")
+					continue
+				}
+
+				// create a new history for the message
+				geofenceHistory, err := geofenceHistoryRepository.InsertGeofenceHistory(geofenceHistoryRepositories.InsertGeofenceHistoryParams{
 					TrackerMessage: trackerMessage,
 					Geofence:       geoFence,
-					Status:         stringStatus,
+					Status:         statusString,
 				})
 				if err != nil {
 					logger.Error("cant insert in the database", err)
 					continue
 				}
+
+				redisRepo.SetLastGeofence(redisRepositories.SetLastGeofenceParams{
+					GeofenceId: geoFence.ID,
+					VehicleID:  trackerMessage.VEHICLE,
+					Value:      geofenceHistory,
+				})
+
+				if statusString == eventValidators.StatusIn {
+					inCounter += 1
+				} else {
+					outCounter += 1
+				}
 			}
-			logger.Log("in counter", inCounter)
-			logger.Log("out counter", len(geoFences)-inCounter)
+
+			if inCounter > 0 {
+				logger.LogWithLabel(trackerMessage.DID, "in counter", inCounter)
+			}
+
+			if outCounter > 0 {
+				logger.LogWithLabel(trackerMessage.DID, "out counter", outCounter)
+			}
 
 			message.Ack(true)
 		}
