@@ -83,6 +83,10 @@ func main() {
 					logger.Error("geojson is not a primitive.D")
 					continue
 				}
+				if trackerMessage.LATITUDE == 0 && trackerMessage.LONGITUDE == 0 {
+					logger.Warning("Invalid tracker message: Latitude and Longitude are 0")
+					continue
+				}
 
 				geofencePolygon := PolygonFromPrimitiveD.PolygonFromPrimitiveD(geojson)
 				point := IsPointInsidePolygon.Point{X: trackerMessage.LATITUDE, Y: trackerMessage.LONGITUDE}
