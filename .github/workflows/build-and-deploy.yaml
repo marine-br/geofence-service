@@ -71,5 +71,10 @@ jobs:
         run: |
           helm upgrade --install geofence-service ./helm-packages/apps/geofence-service -f ./helm-packages/apps/geofence-service/values.yaml \
             --namespace gateway-dev --create-namespace \
-            --set image.tag=latest
+            --set image.tag=latest \
+            --set 'tolerations[0].key=tipo' \
+            --set 'tolerations[0].operator=Equal' \
+            --set 'tolerations[0].value=desenvolvimento' \
+            --set 'tolerations[0].effect=NoExecute'
+
           
