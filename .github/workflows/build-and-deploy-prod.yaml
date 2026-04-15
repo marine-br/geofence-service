@@ -43,7 +43,7 @@ jobs:
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws configure set aws_secret_access_key ${{secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set default.region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws eks update-kubeconfig --region us-east-1 --name gateway-go
+          aws eks update-kubeconfig --region us-east-1 --name dotelematics
       - name: Checkout infra tools repo
         uses: actions/checkout@v3
         with:
