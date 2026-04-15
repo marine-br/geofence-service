@@ -27,8 +27,8 @@ jobs:
         with:
           context: .
           build-args: |
-            GO_GIT_CRED__HTTPS__GITHUB__COM=${{ secrets.GO_GIT_CRED__HTTPS__GITHUB__COM}}
-            GO_PRIVATE=${{ secrets.GO_PRIVATE }}
+            GO_GIT_CRED__HTTPS__GITHUB__COM=${{ secrets.GIT_TOKEN }}
+            GO_PRIVATE=github.com/marine-br
           push: true
           tags: 953966107292.dkr.ecr.us-east-1.amazonaws.com/geofence-service:stable
 
