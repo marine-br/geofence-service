@@ -53,7 +53,7 @@ func PolygonFromPrimitiveD(geojson primitive.D) []IsPointInsidePolygon.Point {
 			var polygon []IsPointInsidePolygon.Point
 			for _, coord := range polygonCoordinates {
 				point := coord.(primitive.A)
-				polygon = append(polygon, IsPointInsidePolygon.Point{X: point[1].(float64), Y: point[0].(float64)})
+				polygon = append(polygon, IsPointInsidePolygon.Point{X: toFloat64(point[1]), Y: toFloat64(point[0])})
 			}
 
 			// Remove the polygon from the features
@@ -84,4 +84,22 @@ func setValueByKey(d *primitive.D, key string, value interface{}) {
 		}
 	}
 	*d = append(*d, primitive.E{Key: key, Value: value})
+}
+
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case int:
+		return float64(val)
+	default:
+		log.Fatalf("toFloat64: unsupported type %T for coordinate value", v)
+		return 0
+	}
 }
