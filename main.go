@@ -48,7 +48,11 @@ func main() {
 	forever := make(chan bool)
 	go func() {
 		for {
-			message := <-rabbitmq
+			message, ok := <-rabbitmq
+			if !ok {
+				logger.Error("rabbitmq delivery channel closed, exiting for restart")
+				os.Exit(1)
+			}
 
 			var trackerMessage models.TrackerMsgType
 			err := json.Unmarshal(message.Body, &trackerMessage)
