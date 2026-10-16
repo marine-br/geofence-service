@@ -4,9 +4,9 @@ go 1.20
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/marine-br/golib-logger v1.12.0
+	github.com/marine-br/golib-logger v1.17.0
 	github.com/marine-br/golib-mongo v1.9.0
-	github.com/marine-br/golib-rabbitmq v1.32.0
+	github.com/marine-br/golib-rabbitmq v1.50.0
 	github.com/marine-br/golib-redis v1.50.0
 	github.com/marine-br/golib-utils v1.309.0
 	github.com/rabbitmq/amqp091-go v1.10.0
