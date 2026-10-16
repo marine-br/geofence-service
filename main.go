@@ -14,9 +14,17 @@ import (
 	"github.com/marine-br/golib-logger/logger"
 	"github.com/marine-br/golib-utils/models"
 	"github.com/marine-br/golib-utils/utils"
+	"github.com/marine-br/golib-utils/utils/metrics"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net/http"
 	"os"
+	"time"
+)
+
+var (
+	errInvalidMessage = errors.New("invalid tracker message")
+	errGeofenceLookup = errors.New("geofence lookup failed")
+	serviceMetrics    = metrics.New("geofence-service")
 )
 
 func main() {
@@ -30,21 +38,19 @@ func main() {
 	geofenceHistoryRepository := geofenceHistoryRepositories.NewMongoGeofenceHistoryRepository(mongo)
 
 	go func() {
-		//http.Handle("/metrics", promhttp.Handler())
-		http.HandleFunc(
-			"/health", utils.HealthCheckHandler(
-				utils.HealthCheckArgs{
-					MongoClient: &mongo,
-				},
-			),
-		)
+		mux := newHTTPMux(utils.HealthCheckHandler(
+			utils.HealthCheckArgs{
+				MongoClient: &mongo,
+			},
+		))
 
 		logger.Log("server listening on port ", os.Getenv("HTTP_SERVER_PORT"))
-		if err := http.ListenAndServe(os.Getenv("HTTP_SERVER_PORT"), nil); !errors.Is(err, http.ErrServerClosed) {
+		if err := http.ListenAndServe(os.Getenv("HTTP_SERVER_PORT"), mux); !errors.Is(err, http.ErrServerClosed) {
 			logger.LogError(err)
 		}
 	}()
 
+	queue := os.Getenv("RABBITMQ_CON_QUEUE")
 	forever := make(chan bool)
 	go func() {
 		for {
@@ -53,12 +59,14 @@ func main() {
 				logger.Error("rabbitmq delivery channel closed, exiting for restart")
 				os.Exit(1)
 			}
+			start := time.Now()
 
 			var trackerMessage models.TrackerMsgType
 			err := json.Unmarshal(message.Body, &trackerMessage)
 			if err != nil {
 				logger.Error(string(message.Body))
 				logger.Error("cant unmarshal tracker message, ack sent", err)
+				serviceMetrics.ObserveMessage(queue, message.Redelivered, start, errInvalidMessage)
 				err := message.Ack(true)
 				if err != nil {
 					logger.Error("cant ack message", err)
@@ -71,6 +79,7 @@ func main() {
 			geoFences, err := geofenceRepository.GetGeofences(geofencesRepositories.GetGeofenceParams{CompanyId: trackerMessage.COMPANY})
 			if err != nil {
 				logger.Error("cant get geofences from company", err)
+				serviceMetrics.ObserveMessage(queue, message.Redelivered, start, errGeofenceLookup)
 				message.Ack(true)
 				continue
 			}
@@ -160,8 +169,18 @@ func main() {
 				logger.LogWithLabel(trackerMessage.DID, "out counter", outCounter)
 			}
 
+			serviceMetrics.ObserveMessage(queue, message.Redelivered, start, nil)
 			message.Ack(true)
 		}
 	}()
 	<-forever
+}
+
+// newHTTPMux serves the health check and /metrics on HTTP_SERVER_PORT, the
+// port of the scrape annotation, without using http.DefaultServeMux.
+func newHTTPMux(health http.HandlerFunc) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", health)
+	mux.Handle("/metrics", serviceMetrics.Handler())
+	return mux
 }
