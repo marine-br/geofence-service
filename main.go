@@ -97,7 +97,7 @@ func main() {
 					continue
 				}
 				if trackerMessage.LATITUDE == 0 && trackerMessage.LONGITUDE == 0 {
-					logger.Warning("Invalid tracker message: Latitude and Longitude are 0")
+					logger.Debug("Invalid tracker message: Latitude and Longitude are 0")
 					continue
 				}
 
