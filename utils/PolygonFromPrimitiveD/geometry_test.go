@@ -125,6 +125,45 @@ func TestDegenerateRingIsSkippedNotFatal(t *testing.T) {
 	}
 }
 
+// A ring with three or more points that does not come back to its first
+// position is malformed (GeoJSON requires the ring to be closed), so the fence
+// is rejected instead of being evaluated with an implicit closing edge.
+func TestUnclosedRingIsRejected(t *testing.T) {
+	unclosedSquare := primitive.A{
+		primitive.A{-48.0, -27.0}, primitive.A{-47.0, -27.0}, primitive.A{-47.0, -26.0}, primitive.A{-48.0, -26.0},
+	}
+	unclosedTriangle := primitive.A{
+		primitive.A{-48.0, -27.0}, primitive.A{-47.0, -27.0}, primitive.A{-47.0, -26.0},
+	}
+	wrongClosingPoint := primitive.A{
+		primitive.A{-48.0, -27.0}, primitive.A{-47.0, -27.0}, primitive.A{-47.0, -26.0}, primitive.A{-48.0, -26.5},
+	}
+	tests := map[string]primitive.D{
+		"Polygon missing the closing point":             collection(feature("Polygon", primitive.A{unclosedSquare})),
+		"MultiPolygon member missing the closing point": collection(feature("MultiPolygon", primitive.A{primitive.A{unclosedSquare}})),
+		"triangle missing the closing point":            collection(feature("Polygon", primitive.A{unclosedTriangle})),
+		"closing point with a different value":          collection(feature("Polygon", primitive.A{wrongClosingPoint})),
+	}
+	for name, geojson := range tests {
+		t.Run(name, func(t *testing.T) {
+			polygons, err := PolygonsFromPrimitiveD(geojson)
+			if err == nil {
+				t.Fatalf("want an error for an unclosed ring, got %d polygons", len(polygons))
+			}
+			if polygons != nil {
+				t.Fatalf("want nil polygons with the error, got %v", polygons)
+			}
+		})
+	}
+
+	t.Run("closed ring stays valid", func(t *testing.T) {
+		polygons, err := PolygonsFromPrimitiveD(collection(feature("Polygon", square(-48, -27, -47, -26))))
+		if err != nil || len(polygons) != 1 {
+			t.Fatalf("closed ring: %d polygons, err %v", len(polygons), err)
+		}
+	})
+}
+
 // The fence comes from Mongo decoded into models.GeofenceType.Geojson (any):
 // documents arrive as primitive.D, arrays as primitive.A and integer
 // coordinates as int32. This runs the real decoding path.

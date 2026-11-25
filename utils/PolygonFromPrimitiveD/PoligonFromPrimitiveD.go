@@ -33,7 +33,8 @@ var ErrNoPolygon = errors.New("geojson has no usable Polygon or MultiPolygon")
 // and returns the outer ring of every Polygon and of every polygon inside a
 // MultiPolygon, in every feature. Holes (inner rings) are ignored, as before.
 // Features with other geometry types are ignored. Rings with fewer than three
-// points are skipped, since they contain no point.
+// points are skipped, since they contain no point. A ring with three or more
+// points must be closed: an unclosed ring is rejected as malformed.
 //
 // It never exits the process: a geojson without "features", or with
 // coordinates of an unexpected shape or type, returns an error so the caller
@@ -93,7 +94,10 @@ func PolygonsFromPrimitiveD(geojson primitive.D) ([][]IsPointInsidePolygon.Point
 }
 
 // ringToPoints converts [[lon, lat], ...] to points with X = latitude and
-// Y = longitude, the convention main.go uses for the tracker position.
+// Y = longitude, the convention main.go uses for the tracker position. A ring
+// with three or more points must be closed (the last position equal to the
+// first), as GeoJSON requires; an unclosed ring is malformed and returns an
+// error so the caller skips the fence.
 func ringToPoints(rawRing any) ([]IsPointInsidePolygon.Point, error) {
 	ring, ok := rawRing.(primitive.A)
 	if !ok {
@@ -114,6 +118,9 @@ func ringToPoints(rawRing any) ([]IsPointInsidePolygon.Point, error) {
 			return nil, fmt.Errorf("position %d latitude: %w", k, err)
 		}
 		points = append(points, IsPointInsidePolygon.Point{X: lat, Y: lon})
+	}
+	if len(points) >= 3 && points[0] != points[len(points)-1] {
+		return nil, fmt.Errorf("ring is not closed: position %d differs from position 0", len(points)-1)
 	}
 	return points, nil
 }
