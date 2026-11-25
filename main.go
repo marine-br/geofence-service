@@ -93,7 +93,7 @@ func main() {
 			for _, geoFence := range geoFences {
 				geojson, ok := geoFence.Geojson.(primitive.D)
 				if !ok {
-					logger.Error("geojson is not a primitive.D")
+					logger.Error(fmt.Sprintf("skipping geofence %s: geojson is not a document", geoFence.ID.Hex()))
 					continue
 				}
 				if trackerMessage.LATITUDE == 0 && trackerMessage.LONGITUDE == 0 {
@@ -101,10 +101,16 @@ func main() {
 					continue
 				}
 
-				geofencePolygon := PolygonFromPrimitiveD.PolygonFromPrimitiveD(geojson)
+				geofencePolygons, err := PolygonFromPrimitiveD.PolygonsFromPrimitiveD(geojson)
+				if err != nil {
+					// A malformed fence must not stop the others (nor the pod):
+					// log its id and evaluate the next fence.
+					logger.Error(fmt.Sprintf("skipping geofence %s: invalid geojson: %v", geoFence.ID.Hex(), err))
+					continue
+				}
 				point := IsPointInsidePolygon.Point{X: trackerMessage.LATITUDE, Y: trackerMessage.LONGITUDE}
 
-				status := IsPointInsidePolygon.IsPointInPolygon(point, geofencePolygon)
+				status := IsPointInsidePolygon.IsPointInAnyPolygon(point, geofencePolygons)
 				// set the default value for the status
 				statusString := eventValidators.StatusOut
 				if status {
