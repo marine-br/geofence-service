@@ -28,7 +28,14 @@ func TestRemovePolygon(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PolygonFromPrimitiveD(tt.args.geojson)
+			polygons, err := PolygonsFromPrimitiveD(tt.args.geojson)
+			if err != nil {
+				t.Fatalf("PolygonsFromPrimitiveD() error = %v", err)
+			}
+			if len(polygons) != 1 {
+				t.Fatalf("PolygonsFromPrimitiveD() returned %d polygons, want 1", len(polygons))
+			}
+			got := polygons[0]
 
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("PolygonFromPrimitiveD() got1 = %#v, want %v", got, tt.want)

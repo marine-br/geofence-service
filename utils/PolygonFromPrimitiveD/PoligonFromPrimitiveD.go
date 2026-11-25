@@ -1,10 +1,13 @@
 package PolygonFromPrimitiveD
 
 import (
+	"errors"
+	"fmt"
+	"math"
+	"time"
+
 	"github.com/marine-br/geoafence-service/utils/IsPointInsidePolygon"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"log"
-	"time"
 )
 
 type GeofenceType struct {
@@ -23,48 +26,103 @@ type GeofenceType struct {
 	DeletedBy   primitive.ObjectID `bson:"deletedBy"`
 }
 
-func PolygonFromPrimitiveD(geojson primitive.D) []IsPointInsidePolygon.Point {
+// ErrNoPolygon means the geojson has no usable Polygon or MultiPolygon area.
+var ErrNoPolygon = errors.New("geojson has no usable Polygon or MultiPolygon")
+
+// PolygonsFromPrimitiveD reads a geofence geojson stored as a FeatureCollection
+// and returns the outer ring of every Polygon and of every polygon inside a
+// MultiPolygon, in every feature. Holes (inner rings) are ignored, as before.
+// Features with other geometry types are ignored. Rings with fewer than three
+// points are skipped, since they contain no point. A ring with three or more
+// points must be closed: an unclosed ring is rejected as malformed.
+//
+// It never exits the process: a geojson without "features", or with
+// coordinates of an unexpected shape or type, returns an error so the caller
+// can skip that fence. A geojson with no usable area returns ErrNoPolygon.
+func PolygonsFromPrimitiveD(geojson primitive.D) ([][]IsPointInsidePolygon.Point, error) {
 	features, ok := getValueByKey(geojson, "features").(primitive.A)
 	if !ok {
-		log.Fatalf("features not found or incorrect type")
+		return nil, errors.New("geojson has no features array")
 	}
 
+	var polygons [][]IsPointInsidePolygon.Point
 	for i, feature := range features {
 		featureMap, ok := feature.(primitive.D)
 		if !ok {
 			continue
 		}
-
 		geometry, ok := getValueByKey(featureMap, "geometry").(primitive.D)
 		if !ok {
 			continue
 		}
+		geometryType, _ := getValueByKey(geometry, "type").(string)
+		if geometryType != "Polygon" && geometryType != "MultiPolygon" {
+			continue
+		}
+		coordinates, ok := getValueByKey(geometry, "coordinates").(primitive.A)
+		if !ok {
+			return nil, fmt.Errorf("feature %d: %s coordinates are not an array", i, geometryType)
+		}
 
-		if geometryType, ok := getValueByKey(geometry, "type").(string); ok && geometryType == "Polygon" {
-			coordinates, ok := getValueByKey(geometry, "coordinates").(primitive.A)
-			if !ok || len(coordinates) == 0 {
+		polygonList := primitive.A{coordinates}
+		if geometryType == "MultiPolygon" {
+			polygonList = coordinates
+		}
+		for j, rawPolygon := range polygonList {
+			rings, ok := rawPolygon.(primitive.A)
+			if !ok {
+				return nil, fmt.Errorf("feature %d polygon %d: rings are not an array", i, j)
+			}
+			if len(rings) == 0 {
 				continue
 			}
-
-			// Extract the first polygon (assuming it's the correct structure)
-			polygonCoordinates := coordinates[0].(primitive.A)
-
-			// Convert to []Point
-			var polygon []IsPointInsidePolygon.Point
-			for _, coord := range polygonCoordinates {
-				point := coord.(primitive.A)
-				polygon = append(polygon, IsPointInsidePolygon.Point{X: toFloat64(point[1]), Y: toFloat64(point[0])})
+			ring, err := ringToPoints(rings[0])
+			if err != nil {
+				return nil, fmt.Errorf("feature %d polygon %d: %w", i, j, err)
 			}
-
-			// Remove the polygon from the features
-			features = append(features[:i], features[i+1:]...)
-			setValueByKey(&geojson, "features", features)
-
-			return polygon
+			if len(ring) < 3 {
+				continue
+			}
+			polygons = append(polygons, ring)
 		}
 	}
 
-	return nil
+	if len(polygons) == 0 {
+		return nil, ErrNoPolygon
+	}
+	return polygons, nil
+}
+
+// ringToPoints converts [[lon, lat], ...] to points with X = latitude and
+// Y = longitude, the convention main.go uses for the tracker position. A ring
+// with three or more points must be closed (the last position equal to the
+// first), as GeoJSON requires; an unclosed ring is malformed and returns an
+// error so the caller skips the fence.
+func ringToPoints(rawRing any) ([]IsPointInsidePolygon.Point, error) {
+	ring, ok := rawRing.(primitive.A)
+	if !ok {
+		return nil, errors.New("ring is not an array")
+	}
+	points := make([]IsPointInsidePolygon.Point, 0, len(ring))
+	for k, rawCoord := range ring {
+		coord, ok := rawCoord.(primitive.A)
+		if !ok || len(coord) < 2 {
+			return nil, fmt.Errorf("position %d is not [longitude, latitude]", k)
+		}
+		lon, err := toFloat64(coord[0])
+		if err != nil {
+			return nil, fmt.Errorf("position %d longitude: %w", k, err)
+		}
+		lat, err := toFloat64(coord[1])
+		if err != nil {
+			return nil, fmt.Errorf("position %d latitude: %w", k, err)
+		}
+		points = append(points, IsPointInsidePolygon.Point{X: lat, Y: lon})
+	}
+	if len(points) >= 3 && points[0] != points[len(points)-1] {
+		return nil, fmt.Errorf("ring is not closed: position %d differs from position 0", len(points)-1)
+	}
+	return points, nil
 }
 
 func getValueByKey(d primitive.D, key string) interface{} {
@@ -76,30 +134,24 @@ func getValueByKey(d primitive.D, key string) interface{} {
 	return nil
 }
 
-func setValueByKey(d *primitive.D, key string, value interface{}) {
-	for i, e := range *d {
-		if e.Key == key {
-			(*d)[i].Value = value
-			return
-		}
-	}
-	*d = append(*d, primitive.E{Key: key, Value: value})
-}
-
-func toFloat64(v interface{}) float64 {
+func toFloat64(v interface{}) (float64, error) {
+	var f float64
 	switch val := v.(type) {
 	case float64:
-		return val
+		f = val
 	case float32:
-		return float64(val)
+		f = float64(val)
 	case int32:
-		return float64(val)
+		f = float64(val)
 	case int64:
-		return float64(val)
+		f = float64(val)
 	case int:
-		return float64(val)
+		f = float64(val)
 	default:
-		log.Fatalf("toFloat64: unsupported type %T for coordinate value", v)
-		return 0
+		return 0, fmt.Errorf("unsupported type %T for coordinate value", v)
 	}
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, fmt.Errorf("coordinate value %v is not finite", f)
+	}
+	return f, nil
 }
